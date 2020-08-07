@@ -1,0 +1,34 @@
+let
+    //pagination count arbitrary no to cover
+    iterations = 1000,
+    //last month
+    prevMonthStart = Date.AddMonths(Date.From(DateTime.LocalNow()),-1),
+    billingPeriod = Date.ToText(prevMonthStart, "yyyyMM"),
+    subscription = "azure subscription id",
+    url = 
+     "https://management.azure.com/subscriptions/" & subscription & "/providers/Microsoft.Billing/billingPeriods/" & billingPeriod & "/providers/Microsoft.Consumption/usageDetails?api-version=2019-10-01&",
+
+    FnGetOnePage =
+     (url) as record =>
+      let
+       Source = Json.Document(Web.Contents(url)),
+       data = try Source[value] otherwise null,
+       next = try Source[nextLink] otherwise null,
+       res = [Data=data, Next=next]
+      in
+       res,
+
+    GeneratedList =
+     List.Generate(
+      ()=>[i=0, res = FnGetOnePage(url)],
+      each [i]<iterations and [res][Data]<>null,
+      each [i=[i]+1, res = FnGetOnePage([res][Next])],
+      each [res][Data]),
+    #"Converted to Table" = Table.FromList(GeneratedList, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    #"Expanded Column1" = Table.ExpandListColumn(#"Converted to Table", "Column1"),
+    #"Expanded Column2" = Table.ExpandRecordColumn(#"Expanded Column1", "Column1", {"kind", "id", "name", "type", "tags", "properties"}, {"usage.kind", "usage.id", "usage.name", "usage.type", "usage.tags", "usage.properties"}),
+    #"Expanded usage.tags" = Table.ExpandRecordColumn(#"Expanded Column2", "usage.tags", {"ClusterId", "ClusterName", "databricks-instance-name", "Creator", "Vendor", "DatabricksEnvironment"}, {"usage.tags.ClusterId", "usage.tags.ClusterName", "usage.tags.databricks-instance-name", "usage.tags.Creator", "usage.tags.Vendor", "usage.tags.DatabricksEnvironment"}),
+    #"Expanded usage.properties" = Table.ExpandRecordColumn(#"Expanded usage.tags", "usage.properties", {"billingAccountId", "billingAccountName", "billingPeriodStartDate", "billingPeriodEndDate", "billingProfileId", "billingProfileName", "accountOwnerId", "accountName", "subscriptionId", "subscriptionName", "date", "product", "partNumber", "meterId", "quantity", "effectivePrice", "cost", "unitPrice", "billingCurrency", "resourceLocation", "consumedService", "resourceId", "resourceName", "invoiceSection", "resourceGroup", "offerId", "isAzureCreditEligible", "publisherType", "chargeType", "frequency", "meterDetails"}, {"usage.properties.billingAccountId", "usage.properties.billingAccountName", "usage.properties.billingPeriodStartDate", "usage.properties.billingPeriodEndDate", "usage.properties.billingProfileId", "usage.properties.billingProfileName", "usage.properties.accountOwnerId", "usage.properties.accountName", "usage.properties.subscriptionId", "usage.properties.subscriptionName", "usage.properties.date", "usage.properties.product", "usage.properties.partNumber", "usage.properties.meterId", "usage.properties.quantity", "usage.properties.effectivePrice", "usage.properties.cost", "usage.properties.unitPrice", "usage.properties.billingCurrency", "usage.properties.resourceLocation", "usage.properties.consumedService", "usage.properties.resourceId", "usage.properties.resourceName", "usage.properties.invoiceSection", "usage.properties.resourceGroup", "usage.properties.offerId", "usage.properties.isAzureCreditEligible", "usage.properties.publisherType", "usage.properties.chargeType", "usage.properties.frequency", "usage.properties.meterDetails"}),
+    #"Changed Type" = Table.TransformColumnTypes(#"Expanded usage.properties",{{"usage.properties.quantity", type number}, {"usage.properties.effectivePrice", type number}, {"usage.properties.cost", type number}, {"usage.properties.unitPrice", type number}})
+in
+    #"Changed Type"
